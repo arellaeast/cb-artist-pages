@@ -2,13 +2,13 @@
 /**
  * Plugin Name:       CB Artist Pages
  * Description:       Radio-deck-styled single template for Pirate Radio artist profiles (cb_artist). Sections: title, circular photo, bio, Baltimore connection, top tracks, discography — enriched via post meta by Data/Lisa.
- * Version:           1.0.0
+ * Version:           1.1.1
  * Author:            Lisa (Captain Baltimore)
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CBAP_VERSION', '1.0.0' );
+define( 'CBAP_VERSION', '1.1.1' );
 define( 'CBAP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CBAP_URL', plugin_dir_url( __FILE__ ) );
 
@@ -31,6 +31,8 @@ class CB_Artist_Pages {
 		add_action( 'init', [ __CLASS__, 'register_meta' ] );
 		add_filter( 'template_include', [ __CLASS__, 'template' ] );
 		add_action( 'wp_enqueue_scripts', [ __CLASS__, 'assets' ] );
+		add_action( 'add_meta_boxes', [ __CLASS__, 'meta_boxes' ] );
+		add_action( 'save_post_cb_artist', [ __CLASS__, 'save_details' ], 10, 2 );
 	}
 
 	/**
@@ -60,6 +62,141 @@ class CB_Artist_Pages {
 				},
 			] );
 		}
+	}
+
+	/**
+	 * Editor-facing meta box (v1.1.0, Jacob's ask): every enrichment field
+	 * fillable from the artist edit screen by anyone who can edit the post
+	 * (Data's Editor account included). Bio stays in the main editor and
+	 * the photo in the Featured Image box; this box adds the rest, plus a
+	 * photo-URL field that sideloads into the featured image on save.
+	 */
+	public static function meta_boxes() {
+		add_meta_box(
+			'cbap_details',
+			__( 'Artist Profile Details', 'cbap' ),
+			[ __CLASS__, 'render_meta_box' ],
+			'cb_artist',
+			'normal',
+			'high'
+		);
+	}
+
+	public static function render_meta_box( $post ) {
+		wp_nonce_field( 'cbap_details', 'cbap_nonce' );
+		$hood       = (string) get_post_meta( $post->ID, 'cb_hood', true );
+		$connection = (string) get_post_meta( $post->ID, 'cb_connection', true );
+		$disco      = (string) get_post_meta( $post->ID, 'cb_discography', true );
+		$photo_url  = (string) get_post_meta( $post->ID, 'cb_photo_url', true );
+		$applied    = (string) get_post_meta( $post->ID, 'cb_photo_url_applied', true );
+		$photo_err  = (string) get_post_meta( $post->ID, 'cb_photo_url_error', true );
+		$links      = json_decode( (string) get_post_meta( $post->ID, 'cb_links', true ) ?: '[]', true );
+		$links_text = is_array( $links ) ? implode( "\n", $links ) : '';
+		?>
+		<p>
+			<label for="cbap_hood"><strong><?php esc_html_e( 'Baltimore neighborhood', 'cbap' ); ?></strong></label><br>
+			<input type="text" id="cbap_hood" name="cbap_hood" class="widefat" value="<?php echo esc_attr( $hood ); ?>" placeholder="Hampden, Pigtown, Highlandtown…">
+			<span class="description"><?php esc_html_e( 'Shows as the location chip under the photo.', 'cbap' ); ?></span>
+		</p>
+		<p>
+			<label for="cbap_photo_url"><strong><?php esc_html_e( 'Artist photo URL', 'cbap' ); ?></strong></label><br>
+			<input type="url" id="cbap_photo_url" name="cbap_photo_url" class="widefat" value="<?php echo esc_attr( $photo_url ); ?>" placeholder="https://…">
+			<span class="description">
+				<?php
+				if ( $photo_err ) {
+					echo '<span style="color:#b32d2e">' . esc_html( sprintf( __( 'Last pull failed: %s', 'cbap' ), $photo_err ) ) . '</span> ';
+				}
+				if ( $photo_url && $photo_url === $applied && has_post_thumbnail( $post ) ) {
+					esc_html_e( 'Pulled in as the featured image. (Or just use the Featured Image box to upload instead.)', 'cbap' );
+				} else {
+					esc_html_e( 'On Update, the image is pulled in and set as the round profile photo.', 'cbap' );
+				}
+				?>
+			</span>
+		</p>
+		<p>
+			<label for="cbap_connection"><strong><?php esc_html_e( 'Baltimore connection', 'cbap' ); ?></strong></label><br>
+			<textarea id="cbap_connection" name="cbap_connection" class="widefat" rows="4"><?php echo esc_textarea( $connection ); ?></textarea>
+			<span class="description"><?php esc_html_e( 'How this artist connects to Baltimore — their story with the city.', 'cbap' ); ?></span>
+		</p>
+		<p>
+			<label for="cbap_links"><strong><?php esc_html_e( 'Links', 'cbap' ); ?></strong></label><br>
+			<textarea id="cbap_links" name="cbap_links" class="widefat" rows="4"><?php echo esc_textarea( $links_text ); ?></textarea>
+			<span class="description"><?php esc_html_e( 'One URL per line (Bandcamp, Instagram, Spotify…). They render as labeled chips on the page.', 'cbap' ); ?></span>
+		</p>
+		<p>
+			<label for="cbap_discography"><strong><?php esc_html_e( 'Discography', 'cbap' ); ?></strong></label><br>
+			<textarea id="cbap_discography" name="cbap_discography" class="widefat" rows="5"><?php echo esc_textarea( $disco ); ?></textarea>
+			<span class="description"><?php esc_html_e( 'One release per line: Title | Year | Note or URL', 'cbap' ); ?></span>
+		</p>
+		<?php
+	}
+
+	public static function save_details( $post_id, $post ) {
+		if ( ! isset( $_POST['cbap_nonce'] ) || ! wp_verify_nonce( sanitize_key( $_POST['cbap_nonce'] ), 'cbap_details' ) ) {
+			return;
+		}
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+			return;
+		}
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
+		}
+		update_post_meta( $post_id, 'cb_hood', sanitize_text_field( wp_unslash( $_POST['cbap_hood'] ?? '' ) ) );
+		update_post_meta( $post_id, 'cb_connection', sanitize_textarea_field( wp_unslash( $_POST['cbap_connection'] ?? '' ) ) );
+		update_post_meta( $post_id, 'cb_discography', sanitize_textarea_field( wp_unslash( $_POST['cbap_discography'] ?? '' ) ) );
+
+		$lines = preg_split( '/\r\n|\r|\n/', (string) wp_unslash( $_POST['cbap_links'] ?? '' ) );
+		$urls  = [];
+		foreach ( $lines as $line ) {
+			$line = trim( $line );
+			if ( '' !== $line ) {
+				$url = esc_url_raw( $line );
+				if ( $url ) {
+					$urls[] = $url;
+				}
+			}
+		}
+		update_post_meta( $post_id, 'cb_links', wp_json_encode( $urls ) );
+
+		update_post_meta( $post_id, 'cb_photo_url', esc_url_raw( wp_unslash( $_POST['cbap_photo_url'] ?? '' ) ) );
+		self::maybe_sideload_photo( $post_id );
+	}
+
+	/** Pull cb_photo_url into the featured image when it changes. */
+	public static function maybe_sideload_photo( $post_id ) {
+		$url     = (string) get_post_meta( $post_id, 'cb_photo_url', true );
+		$applied = (string) get_post_meta( $post_id, 'cb_photo_url_applied', true );
+		if ( '' === $url || $url === $applied ) {
+			return;
+		}
+		try {
+			if ( ! function_exists( 'media_sideload_image' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/media.php';
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+				require_once ABSPATH . 'wp-admin/includes/image.php';
+			}
+			// Verified 2026-10-31: on this install, if nothing has initialized
+			// the WP filesystem yet, the sideload path lazily resolves it to
+			// ftpext with no credentials and dies with a TypeError (which would
+			// 500 the whole post save). Initializing it explicitly (direct
+			// method) first makes the sideload work.
+			if ( function_exists( 'WP_Filesystem' ) ) {
+				WP_Filesystem();
+			}
+			$att_id = media_sideload_image( $url, $post_id, null, 'id' );
+		} catch ( \Throwable $e ) {
+			// A photo problem must never break the save itself.
+			update_post_meta( $post_id, 'cb_photo_url_error', $e->getMessage() );
+			return;
+		}
+		if ( is_wp_error( $att_id ) ) {
+			update_post_meta( $post_id, 'cb_photo_url_error', $att_id->get_error_message() );
+			return;
+		}
+		set_post_thumbnail( $post_id, (int) $att_id );
+		update_post_meta( $post_id, 'cb_photo_url_applied', $url );
+		delete_post_meta( $post_id, 'cb_photo_url_error' );
 	}
 
 	public static function template( $template ) {

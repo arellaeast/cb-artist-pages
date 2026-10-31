@@ -22,6 +22,14 @@ Sections with no data are hidden. An artist with no data at all gets a
 "Full profile coming soon" note. Top Tracks needs no enrichment — it is
 driven by the radio submissions data.
 
+## Editing (v1.1.0+)
+
+Every field is fillable from the artist edit screen by anyone who can edit
+the post (Editors included): bio in the main editor, photo via Featured
+Image, and an **Artist Profile Details** meta box with neighborhood,
+photo URL (sideloaded into the featured image on save), Baltimore
+connection, links (one URL per line), and discography.
+
 ## Deploy
 
 Fresh folder `cb-artist-pages` in `wp-content/plugins/`, owned by www-data
