@@ -1,14 +1,14 @@
 <?php
 /**
  * Plugin Name:       CB Artist Pages
- * Description:       Radio-deck-styled templates for Pirate Radio artist profiles (cb_artist): a single profile (title, circular photo, bio, Baltimore connection, top tracks, discography) plus an A–Z card-grid hub for the archive. Enriched via post meta by Data/Lisa.
- * Version:           1.2.0
+ * Description:       Radio-deck-styled templates for Pirate Radio artist profiles (cb_artist): a single profile (title, circular photo, bio, Baltimore connection, top tracks, discography) plus an A–Z card-grid hub for the archive with name/neighborhood search. Enriched via post meta by Data/Lisa.
+ * Version:           1.3.0
  * Author:            Lisa (Captain Baltimore)
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CBAP_VERSION', '1.2.0' );
+define( 'CBAP_VERSION', '1.3.0' );
 define( 'CBAP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CBAP_URL', plugin_dir_url( __FILE__ ) );
 
@@ -34,6 +34,7 @@ class CB_Artist_Pages {
 		add_filter( 'template_include', [ __CLASS__, 'template' ] );
 		add_action( 'wp_enqueue_scripts', [ __CLASS__, 'assets' ] );
 		add_action( 'pre_get_posts', [ __CLASS__, 'archive_query' ] );
+		add_filter( 'query_vars', [ __CLASS__, 'query_vars' ] );
 		add_action( 'add_meta_boxes', [ __CLASS__, 'meta_boxes' ] );
 		add_action( 'save_post_cb_artist', [ __CLASS__, 'save_details' ], 10, 2 );
 	}
@@ -259,16 +260,65 @@ class CB_Artist_Pages {
 	/**
 	 * The hub is a directory: alphabetical by artist name, paginated,
 	 * instead of the theme's newest-first blog order. Archive query only.
+	 *
+	 * With ?artist_search=<term> (v1.3.0) the hub switches to search
+	 * mode: artists whose name (post title) or neighborhood (cb_hood)
+	 * contains the term, still A–Z, all matches on one view (cap 60).
 	 */
 	public static function archive_query( $query ) {
 		if ( is_admin() || ! $query->is_main_query() ) {
 			return;
 		}
-		if ( $query->is_post_type_archive( 'cb_artist' ) ) {
-			$query->set( 'orderby', 'title' );
-			$query->set( 'order', 'ASC' );
+		if ( ! $query->is_post_type_archive( 'cb_artist' ) ) {
+			return;
+		}
+		$query->set( 'orderby', 'title' );
+		$query->set( 'order', 'ASC' );
+
+		$term = self::search_term( $query );
+		if ( '' !== $term ) {
+			$ids = self::search_match_ids( $term );
+			$query->set( 'posts_per_page', 60 );
+			$query->set( 'post__in', $ids ?: [ 0 ] );
+		} else {
 			$query->set( 'posts_per_page', 24 );
 		}
+	}
+
+	/** The directory search box rides in on its own query var. */
+	public static function query_vars( $vars ) {
+		$vars[] = 'artist_search';
+		return $vars;
+	}
+
+	/** The visitor's search term, sanitized ('' when just browsing). */
+	public static function search_term( $query = null ) {
+		$raw = $query ? $query->get( 'artist_search' ) : get_query_var( 'artist_search' );
+		if ( ! is_string( $raw ) ) {
+			return '';
+		}
+		return trim( sanitize_text_field( $raw ) );
+	}
+
+	/**
+	 * IDs of published artists matching a search term: the term appears
+	 * in the artist's name (post title) or in their cb_hood neighborhood.
+	 */
+	public static function search_match_ids( $term ) {
+		global $wpdb;
+		$like = '%' . $wpdb->esc_like( $term ) . '%';
+		$ids  = $wpdb->get_col( $wpdb->prepare(
+			"SELECT DISTINCT p.ID
+			 FROM {$wpdb->posts} p
+			 LEFT JOIN {$wpdb->postmeta} pm
+			   ON pm.post_id = p.ID AND pm.meta_key = 'cb_hood'
+			 WHERE p.post_type = 'cb_artist'
+			   AND p.post_status = 'publish'
+			   AND ( p.post_title LIKE %s OR pm.meta_value LIKE %s )",
+			$like,
+			$like
+		) );
+		return array_map( 'intval', (array) $ids );
 	}
 
 	/**

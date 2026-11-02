@@ -6,15 +6,24 @@
  * station, short blurb), sorted A–Z by the archive query in the
  * plugin. Replaces the theme's blog listing, which carried the news
  * category filter and no photos.
+ *
+ * Search mode (?artist_search=<term>, v1.3.0): the same grid narrowed
+ * to artists whose name or neighborhood matches, all on one view,
+ * with a match count and a clear-search link back to the A–Z browse.
  */
 
 defined( 'ABSPATH' ) || exit;
 
 get_header();
 
-$total   = (int) ( wp_count_posts( 'cb_artist' )->publish ?? 0 );
-$palette = [ '#FF2E88', '#7B2FFF', '#00C2E8', '#7ED321', '#FFD500' ];
-$idx     = 0;
+global $wp_query;
+$total       = (int) ( wp_count_posts( 'cb_artist' )->publish ?? 0 );
+$palette     = [ '#FF2E88', '#7B2FFF', '#00C2E8', '#7ED321', '#FFD500' ];
+$idx         = 0;
+$search_term = CB_Artist_Pages::search_term();
+$is_search   = '' !== $search_term;
+$found       = (int) $wp_query->found_posts;
+$archive_url = get_post_type_archive_link( 'cb_artist' );
 ?>
 
 <div id="primary" class="content-area">
@@ -29,7 +38,21 @@ $idx     = 0;
 
 			<h1 class="cbah-title">Pirate Radio &mdash; The Artists</h1>
 			<p class="cbah-sub">Every artist spinning on the Captain&rsquo;s stations. Tap a card for their story, top tracks, and the dial where you can hear them.</p>
-			<?php if ( $total > 0 ) : ?>
+
+			<form class="cbah-search" method="get" action="<?php echo esc_url( $archive_url ); ?>" role="search">
+				<label class="cbah-search-label" for="cbah-q">Find an artist</label>
+				<div class="cbah-search-row">
+					<input class="cbah-search-input" id="cbah-q" type="search" name="artist_search" value="<?php echo esc_attr( $search_term ); ?>" placeholder="Name or neighborhood &mdash; try &ldquo;Nelson&rdquo; or &ldquo;Hampden&rdquo;" autocomplete="off">
+					<button class="cbah-search-btn" type="submit">Search</button>
+				</div>
+			</form>
+
+			<?php if ( $is_search ) : ?>
+				<div class="cbah-countrow">
+					<span class="cbah-count"><?php echo esc_html( sprintf( _n( '%1$s artist matches', '%1$s artists match', $found, 'cbap' ), number_format_i18n( $found ) ) ); ?> &ldquo;<?php echo esc_html( $search_term ); ?>&rdquo;</span>
+					<a class="cbah-clear" href="<?php echo esc_url( $archive_url ); ?>">&times; Clear search &mdash; browse all A&ndash;Z</a>
+				</div>
+			<?php elseif ( $total > 0 ) : ?>
 				<div class="cbah-countrow"><span class="cbah-count"><?php echo esc_html( number_format_i18n( $total ) ); ?> artists &middot; A&ndash;Z</span></div>
 			<?php endif; ?>
 
@@ -88,7 +111,14 @@ $idx     = 0;
 					</nav>
 				<?php endif; ?>
 			<?php else : ?>
-				<div class="cbah-soon">The crew is still boarding &mdash; artist profiles are coming soon.</div>
+				<?php if ( $is_search ) : ?>
+					<div class="cbah-soon">
+						<p class="cbah-noresults-line">Nobody on the roster matches &ldquo;<?php echo esc_html( $search_term ); ?>&rdquo; &mdash; try a different name or neighborhood.</p>
+						<a class="cbah-clearbtn" href="<?php echo esc_url( $archive_url ); ?>">&times; Clear search &mdash; browse all A&ndash;Z</a>
+					</div>
+				<?php else : ?>
+					<div class="cbah-soon">The crew is still boarding &mdash; artist profiles are coming soon.</div>
+				<?php endif; ?>
 			<?php endif; ?>
 
 			<div class="cbah-listenrow">

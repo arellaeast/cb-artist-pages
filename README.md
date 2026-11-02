@@ -18,6 +18,13 @@ bio blurb; the whole card links to the profile. The archive query is sorted
 A–Z by artist name (it's a directory) at 24 per page with deck-styled
 pagination.
 
+Search (v1.3.0+): a deck-styled search box in the hub header takes
+`?artist_search=<term>` (plain GET, no JS). It matches the term against the
+artist name (post title) and the `cb_hood` neighborhood meta, and shows all
+matches (cap 60) in the same card grid, A–Z, with a match-count chip and a
+clear-search link back to the full browse. No matches gets a friendly
+empty state, never a 404.
+
 ## Enrichment fields
 
 | Section | Source |
