@@ -1,10 +1,22 @@
 # CB Artist Pages
 
-WordPress plugin for captainbaltimore.com — a Radio-Deck-styled single template
-for Pirate Radio artist profiles (`cb_artist` posts at `/radio/artists/<slug>/`).
+WordPress plugin for captainbaltimore.com — Radio-Deck-styled templates for
+Pirate Radio artist profiles (`cb_artist` posts at `/radio/artists/<slug>/`).
 
-Layout (top to bottom): Title → circular artist photo → Bio → Baltimore
+Single layout (top to bottom): Title → circular artist photo → Bio → Baltimore
 Connection → Top Tracks → Discography.
+
+## Archive hub (v1.2.0+)
+
+`/radio/artists/` renders the plugin's own archive template (before v1.2.0 it
+fell through to the theme's blog listing — news category filter bar, no
+photos). Same deck styling: CAPT·BLTMR masthead, "Pirate Radio — The Artists"
+header, then a responsive card grid. Each card: circular photo (yellow
+pirate-flag fallback), name, neighborhood chip and home-station chip (the
+artist's most-voted live track's channel + dial) when present, and a two-line
+bio blurb; the whole card links to the profile. The archive query is sorted
+A–Z by artist name (it's a directory) at 24 per page with deck-styled
+pagination.
 
 ## Enrichment fields
 

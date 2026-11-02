@@ -1,14 +1,14 @@
 <?php
 /**
  * Plugin Name:       CB Artist Pages
- * Description:       Radio-deck-styled single template for Pirate Radio artist profiles (cb_artist). Sections: title, circular photo, bio, Baltimore connection, top tracks, discography — enriched via post meta by Data/Lisa.
- * Version:           1.1.1
+ * Description:       Radio-deck-styled templates for Pirate Radio artist profiles (cb_artist): a single profile (title, circular photo, bio, Baltimore connection, top tracks, discography) plus an A–Z card-grid hub for the archive. Enriched via post meta by Data/Lisa.
+ * Version:           1.2.0
  * Author:            Lisa (Captain Baltimore)
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CBAP_VERSION', '1.1.1' );
+define( 'CBAP_VERSION', '1.2.0' );
 define( 'CBAP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CBAP_URL', plugin_dir_url( __FILE__ ) );
 
@@ -29,8 +29,11 @@ class CB_Artist_Pages {
 
 	public static function init() {
 		add_action( 'init', [ __CLASS__, 'register_meta' ] );
+		add_action( 'init', [ __CLASS__, 'rest_support' ], 20 );
+		add_action( 'rest_after_insert_cb_artist', [ __CLASS__, 'rest_sideload' ] );
 		add_filter( 'template_include', [ __CLASS__, 'template' ] );
 		add_action( 'wp_enqueue_scripts', [ __CLASS__, 'assets' ] );
+		add_action( 'pre_get_posts', [ __CLASS__, 'archive_query' ] );
 		add_action( 'add_meta_boxes', [ __CLASS__, 'meta_boxes' ] );
 		add_action( 'save_post_cb_artist', [ __CLASS__, 'save_details' ], 10, 2 );
 	}
@@ -50,6 +53,7 @@ class CB_Artist_Pages {
 			'cb_discography' => 'sanitize_textarea_field',
 			'cb_hood'        => 'sanitize_text_field',
 			'cb_links'       => 'sanitize_text_field',
+			'cb_photo_url'   => 'esc_url_raw',
 		];
 		foreach ( $fields as $key => $sanitize ) {
 			register_post_meta( 'cb_artist', $key, [
@@ -163,6 +167,24 @@ class CB_Artist_Pages {
 		self::maybe_sideload_photo( $post_id );
 	}
 
+	/**
+	 * REST exposure (v1.1.2): cb_artist was registered without the
+	 * 'custom-fields' support, so the REST controller omitted the meta
+	 * object entirely even though the keys above are show_in_rest.
+	 * Adding the support exposes them for editors pushing enrichment
+	 * over REST (Data's working path). Photo URL set over REST also
+	 * triggers the same sideload the meta box performs on save.
+	 */
+	public static function rest_support() {
+		add_post_type_support( 'cb_artist', 'custom-fields' );
+	}
+
+	public static function rest_sideload( $post ) {
+		if ( $post && 'cb_artist' === $post->post_type ) {
+			self::maybe_sideload_photo( $post->ID );
+		}
+	}
+
 	/** Pull cb_photo_url into the featured image when it changes. */
 	public static function maybe_sideload_photo( $post_id ) {
 		$url     = (string) get_post_meta( $post_id, 'cb_photo_url', true );
@@ -206,6 +228,12 @@ class CB_Artist_Pages {
 				return $ours;
 			}
 		}
+		if ( is_post_type_archive( 'cb_artist' ) ) {
+			$ours = CBAP_DIR . 'templates/archive-cb_artist.php';
+			if ( file_exists( $ours ) ) {
+				return $ours;
+			}
+		}
 		return $template;
 	}
 
@@ -218,6 +246,64 @@ class CB_Artist_Pages {
 				CBAP_VERSION
 			);
 		}
+		if ( is_post_type_archive( 'cb_artist' ) ) {
+			wp_enqueue_style(
+				'cbap-archive',
+				CBAP_URL . 'assets/archive.css',
+				[],
+				CBAP_VERSION
+			);
+		}
+	}
+
+	/**
+	 * The hub is a directory: alphabetical by artist name, paginated,
+	 * instead of the theme's newest-first blog order. Archive query only.
+	 */
+	public static function archive_query( $query ) {
+		if ( is_admin() || ! $query->is_main_query() ) {
+			return;
+		}
+		if ( $query->is_post_type_archive( 'cb_artist' ) ) {
+			$query->set( 'orderby', 'title' );
+			$query->set( 'order', 'ASC' );
+			$query->set( 'posts_per_page', 24 );
+		}
+	}
+
+	/**
+	 * The artist's home station on Pirate Radio: the channel of their
+	 * most-voted live track, resolved to [slug, label, freq, accent].
+	 * Null when the artist has no live tracks yet.
+	 */
+	public static function station_for( $artist_post_id ) {
+		$tracks = self::top_tracks( $artist_post_id, 1 );
+		if ( ! $tracks ) {
+			return null;
+		}
+		$slug     = (string) $tracks[0]->channel_slug;
+		$channels = self::channels_map();
+		if ( isset( $channels[ $slug ] ) ) {
+			return [ 'slug' => $slug ] + $channels[ $slug ];
+		}
+		return [
+			'slug'   => $slug,
+			'label'  => ucwords( str_replace( '-', ' ', $slug ) ),
+			'freq'   => '',
+			'accent' => self::ACCENTS[ $slug ] ?? '#00C2E8',
+		];
+	}
+
+	/** Short plain-text blurb for a hub card: bio first, connection as fallback. */
+	public static function card_blurb( $post ) {
+		$text = trim( wp_strip_all_tags( (string) $post->post_content ) );
+		if ( '' === $text ) {
+			$text = trim( wp_strip_all_tags( (string) get_post_meta( $post->ID, 'cb_connection', true ) ) );
+		}
+		if ( '' === $text ) {
+			return '';
+		}
+		return wp_trim_words( $text, 24, '…' );
 	}
 
 	/** slug => [label, freq, accent] from the radio plugin's channel map. */
